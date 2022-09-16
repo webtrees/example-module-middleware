@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace ExampleNamespace;
 
+use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\Module\AbstractModule;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Module\ModuleCustomTrait;
@@ -16,12 +17,14 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
+use function in_array;
+
 class ExampleModuleMiddleware extends AbstractModule implements ModuleCustomInterface, MiddlewareInterface {
     use ModuleCustomTrait;
 
-    // List of unwanted IP ranges in CIDR format, e.g. "123.45.67.89/24".
-    private const BAD_IP_RANGES = [
-        '127.0.0.1/32',
+    // List of unwanted IP addresses.
+    private const BAD_IP_ADDRESSES = [
+        '127.0.0.1',
     ];
 
     /**
@@ -46,12 +49,10 @@ class ExampleModuleMiddleware extends AbstractModule implements ModuleCustomInte
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         // Code here is executed before we process the request/response.
-
         $ip_address = $request->getAttribute('client-ip');
-        foreach (self::BAD_IP_RANGES as $bad_cidr) {
-            if ($this->ipInCidr($ip_address, $bad_cidr)) {
-                return response('IP address is not allowed: ' . $bad_cidr, 403);
-            }
+        if (in_array($ip_address, self::BAD_IP_ADDRESSES, true)) {
+            // Throwing an Http exception creates a friendly error page.
+            throw new HttpAccessDeniedException('IP address is not allowed: ' . $ip_address);
         }
 
         // Generate the response.
@@ -62,24 +63,5 @@ class ExampleModuleMiddleware extends AbstractModule implements ModuleCustomInte
         $response = $response->withHeader('X-Powered-By', 'Fish');
 
         return $response;
-    }
-
-    /**
-     * Is an IP address in a CIDR range>
-     *
-     * @param string $ip
-     * @param string $cidr
-     *
-     * @return bool
-     */
-    private function ipInCidr(string $ip, string $cidr): bool
-    {
-        [$net, $mask] = explode('/', $cidr);
-
-        $ip_net  = ip2long($net);
-        $ip_mask = ~((1 << 32 - (int) $mask) - 1);
-        $ip_ip   = ip2long($ip);
-
-        return ($ip_ip & $ip_mask) === ($ip_net & $ip_mask);
     }
 }
